@@ -1306,6 +1306,14 @@ func (s *stratovirt) GenerateSocket(id string) (interface{}, error) {
 	return generateVMSocket(id, s.config.VMStorePath)
 }
 
+func (s *stratovirt) CheckpointVM(ctx context.Context, checkpointURI string) error {
+	return fmt.Errorf("CheckpointVM: not implemented for stratovirt")
+}
+
+func (s *stratovirt) RestoreFromCheckpoint(ctx context.Context, checkpointURI string) error {
+	return fmt.Errorf("RestoreFromCheckpoint: not implemented for stratovirt")
+}
+
 func (s *stratovirt) IsRateLimiterBuiltin() bool {
 	return false
 }

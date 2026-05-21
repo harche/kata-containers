@@ -235,6 +235,21 @@ func (v *VM) Resume(ctx context.Context) error {
 	return v.hypervisor.ResumeVM(ctx)
 }
 
+// Checkpoint saves the VM's state to a remote checkpoint URI.
+// The VM is paused during checkpointing and remains paused after completion.
+func (v *VM) Checkpoint(ctx context.Context, checkpointURI string) error {
+	v.logger().WithField("checkpointURI", checkpointURI).Info("checkpoint vm")
+	return v.hypervisor.CheckpointVM(ctx, checkpointURI)
+}
+
+// RestoreFromCheckpoint downloads a checkpoint and configures the VM to boot
+// from the saved state. After calling this, the caller should use the standard
+// VM creation flow (CreateVM + StartVM) to boot the restored VM.
+func (v *VM) RestoreFromCheckpoint(ctx context.Context, checkpointURI string) error {
+	v.logger().WithField("checkpointURI", checkpointURI).Info("restore vm from checkpoint")
+	return v.hypervisor.RestoreFromCheckpoint(ctx, checkpointURI)
+}
+
 // Start kicks off a configured VM.
 func (v *VM) Start(ctx context.Context) error {
 	v.logger().Info("start vm")

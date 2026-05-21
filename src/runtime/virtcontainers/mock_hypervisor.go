@@ -152,6 +152,14 @@ func (m *mockHypervisor) GenerateSocket(id string) (interface{}, error) {
 	}, nil
 }
 
+func (m *mockHypervisor) CheckpointVM(ctx context.Context, checkpointURI string) error {
+	return nil
+}
+
+func (m *mockHypervisor) RestoreFromCheckpoint(ctx context.Context, checkpointURI string) error {
+	return nil
+}
+
 func (m *mockHypervisor) IsRateLimiterBuiltin() bool {
 	return false
 }

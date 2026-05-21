@@ -277,3 +277,8 @@ func (s *Sandbox) SetIPTables(ctx context.Context, isIPv6 bool, data []byte) err
 func (s *Sandbox) SetPolicy(ctx context.Context, policy string) error {
 	return nil
 }
+
+// Checkpoint implements the VCSandbox function of the same name.
+func (s *Sandbox) Checkpoint(ctx context.Context, checkpointURI string) error {
+	return nil
+}

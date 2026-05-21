@@ -1331,6 +1331,14 @@ func (fc *firecracker) GenerateSocket(id string) (interface{}, error) {
 	}, nil
 }
 
+func (fc *firecracker) CheckpointVM(ctx context.Context, checkpointURI string) error {
+	return fmt.Errorf("CheckpointVM: not implemented for firecracker")
+}
+
+func (fc *firecracker) RestoreFromCheckpoint(ctx context.Context, checkpointURI string) error {
+	return fmt.Errorf("RestoreFromCheckpoint: not implemented for firecracker")
+}
+
 func (fc *firecracker) IsRateLimiterBuiltin() bool {
 	return true
 }

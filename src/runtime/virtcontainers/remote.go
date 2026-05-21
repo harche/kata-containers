@@ -293,6 +293,14 @@ func (rh *remoteHypervisor) Load(persistapi.HypervisorState) {
 	notImplemented("Load")
 }
 
+func (rh *remoteHypervisor) CheckpointVM(ctx context.Context, checkpointURI string) error {
+	return notImplemented("CheckpointVM")
+}
+
+func (rh *remoteHypervisor) RestoreFromCheckpoint(ctx context.Context, checkpointURI string) error {
+	return notImplemented("RestoreFromCheckpoint")
+}
+
 func (rh *remoteHypervisor) IsRateLimiterBuiltin() bool {
 	return false
 }

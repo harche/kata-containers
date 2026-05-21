@@ -11,6 +11,7 @@ package virtcontainers
 
 import (
 	"context"
+	"fmt"
 
 	hv "github.com/kata-containers/kata-containers/src/runtime/pkg/hypervisors"
 	"github.com/kata-containers/kata-containers/src/runtime/virtcontainers/types"
@@ -130,6 +131,14 @@ func (vfw *virtFramework) Load(hv.HypervisorState) {
 
 func (vfw *virtFramework) GenerateSocket(id string) (interface{}, error) {
 	return nil, nil
+}
+
+func (vfw *virtFramework) CheckpointVM(ctx context.Context, checkpointURI string) error {
+	return fmt.Errorf("CheckpointVM: not implemented for virtframework")
+}
+
+func (vfw *virtFramework) RestoreFromCheckpoint(ctx context.Context, checkpointURI string) error {
+	return fmt.Errorf("RestoreFromCheckpoint: not implemented for virtframework")
 }
 
 func (vfw *virtFramework) IsRateLimiterBuiltin() bool {

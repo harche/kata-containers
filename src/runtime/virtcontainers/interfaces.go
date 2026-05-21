@@ -85,6 +85,10 @@ type VCSandbox interface {
 	GetIPTables(ctx context.Context, isIPv6 bool) ([]byte, error)
 	SetIPTables(ctx context.Context, isIPv6 bool, data []byte) error
 	SetPolicy(ctx context.Context, policy string) error
+
+	// Checkpoint saves the sandbox's VM state to the given checkpoint URI.
+	// Supported URI schemes: gs://, s3://, file://.
+	Checkpoint(ctx context.Context, checkpointURI string) error
 }
 
 // VCContainer is the Container interface

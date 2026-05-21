@@ -331,6 +331,13 @@ func (s *Sandbox) GetHypervisorPid() (int, error) {
 	return pids[0], nil
 }
 
+// Checkpoint saves the sandbox's VM state to the given checkpoint URI.
+// The hypervisor is paused and its device state + memory are uploaded to
+// the storage backend identified by the URI scheme (gs://, s3://, file://).
+func (s *Sandbox) Checkpoint(ctx context.Context, checkpointURI string) error {
+	return s.hypervisor.CheckpointVM(ctx, checkpointURI)
+}
+
 // RescanNetwork re-scans the network namespace for endpoints if none have
 // been discovered yet. This is idempotent: if endpoints already exist it
 // returns immediately. It enables Docker 26+ support where networking is

@@ -931,7 +931,26 @@ func (s *service) Checkpoint(ctx context.Context, r *taskAPI.CheckpointTaskReque
 		rpcDurationsHistogram.WithLabelValues("checkpoint").Observe(float64(time.Since(start).Nanoseconds() / int64(time.Millisecond)))
 	}()
 
-	return nil, errdefs.ToGRPCf(errdefs.ErrNotImplemented, "service Checkpoint")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.sandbox == nil {
+		return nil, errdefs.ToGRPCf(errdefs.ErrFailedPrecondition, "sandbox not created")
+	}
+
+	// Use the checkpoint path from the request as the checkpoint URI.
+	// Supports gs://, s3://, and file:// URI schemes.
+	// If no path is given, return an error.
+	checkpointURI := r.Path
+	if checkpointURI == "" {
+		return nil, errdefs.ToGRPCf(errdefs.ErrInvalidArgument, "checkpoint path (URI) is required")
+	}
+
+	if err := s.sandbox.Checkpoint(ctx, checkpointURI); err != nil {
+		return nil, err
+	}
+
+	return empty, nil
 }
 
 // Connect returns shim information such as the shim's pid

@@ -1331,6 +1331,15 @@ type Hypervisor interface {
 	// generate the socket to communicate the host and guest
 	GenerateSocket(id string) (interface{}, error)
 
+	// CheckpointVM saves the VM's device state and memory to a remote checkpoint URI.
+	// The VM is paused before checkpointing and remains paused after completion.
+	// Supported URI schemes: gs:// (GCS), s3:// (S3), file:// (local).
+	CheckpointVM(ctx context.Context, checkpointURI string) error
+
+	// RestoreFromCheckpoint downloads a checkpoint from the given URI and boots a VM
+	// from the saved state.
+	RestoreFromCheckpoint(ctx context.Context, checkpointURI string) error
+
 	// check if hypervisor supports built-in rate limiter.
 	IsRateLimiterBuiltin() bool
 }

@@ -1974,6 +1974,14 @@ func (clh *cloudHypervisor) vmInfo() (chclient.VmInfo, error) {
 	return info, openAPIClientError(err)
 }
 
+func (clh *cloudHypervisor) CheckpointVM(ctx context.Context, checkpointURI string) error {
+	return fmt.Errorf("CheckpointVM: not implemented for cloud-hypervisor")
+}
+
+func (clh *cloudHypervisor) RestoreFromCheckpoint(ctx context.Context, checkpointURI string) error {
+	return fmt.Errorf("RestoreFromCheckpoint: not implemented for cloud-hypervisor")
+}
+
 func (clh *cloudHypervisor) IsRateLimiterBuiltin() bool {
 	return true
 }

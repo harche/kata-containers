@@ -44,6 +44,7 @@ import (
 	"github.com/kata-containers/kata-containers/src/runtime/pkg/katautils/katatrace"
 	pkgUtils "github.com/kata-containers/kata-containers/src/runtime/pkg/utils"
 	"github.com/kata-containers/kata-containers/src/runtime/pkg/uuid"
+	"github.com/kata-containers/kata-containers/src/runtime/virtcontainers/checkpoint"
 	"github.com/kata-containers/kata-containers/src/runtime/virtcontainers/types"
 	"github.com/kata-containers/kata-containers/src/runtime/virtcontainers/utils"
 )
@@ -2465,6 +2466,160 @@ func (q *qemu) waitMigration() error {
 	}
 
 	return nil
+}
+
+// CheckpointVM saves the VM's device state and memory to a remote checkpoint URI.
+// It pauses the VM, saves device state via exec migration, dumps memory,
+// then uploads both artifacts to the checkpoint storage backend.
+// The VM remains paused after completion — the caller decides whether to resume or stop.
+func (q *qemu) CheckpointVM(ctx context.Context, checkpointURI string) error {
+	span, ctx := katatrace.Trace(ctx, q.Logger(), "CheckpointVM", qemuTracingTags, map[string]string{"sandbox_id": q.id})
+	defer span.End()
+
+	q.Logger().WithField("checkpointURI", checkpointURI).Info("checkpoint VM")
+
+	store, err := checkpoint.NewStorage(ctx, checkpointURI)
+	if err != nil {
+		return err
+	}
+
+	// Create a temporary directory for local checkpoint artifacts
+	tmpDir, err := os.MkdirTemp("", "kata-checkpoint-")
+	if err != nil {
+		return fmt.Errorf("create checkpoint tmpdir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	localDevicesState := filepath.Join(tmpDir, "state")
+	localMemory := filepath.Join(tmpDir, "memory")
+
+	// 1. Pause the VM
+	if err := q.PauseVM(ctx); err != nil {
+		return fmt.Errorf("checkpoint: pause VM: %w", err)
+	}
+
+	// 2. Setup QMP
+	if err := q.qmpSetup(); err != nil {
+		return fmt.Errorf("checkpoint: qmp setup: %w", err)
+	}
+
+	// 3. Set ignore-shared migration capability (same as SaveVM for templates)
+	if err := q.arch.setIgnoreSharedMemoryMigrationCaps(q.qmpMonitorCh.ctx, q.qmpMonitorCh.qmp); err != nil {
+		q.Logger().WithError(err).Warn("checkpoint: set migration ignore shared memory (continuing)")
+	}
+
+	// 4. Save device state via exec migration
+	if err := q.qmpMonitorCh.qmp.ExecSetMigrateArguments(q.qmpMonitorCh.ctx, fmt.Sprintf("%s>%s", qmpExecCatCmd, localDevicesState)); err != nil {
+		return fmt.Errorf("checkpoint: exec migration: %w", err)
+	}
+	if err := q.waitMigration(); err != nil {
+		return fmt.Errorf("checkpoint: wait migration: %w", err)
+	}
+
+	// 5. Dump memory to local file
+	// For memory, we copy the file-backed memory content. If using MemoryPath
+	// (as set by template flow), copy that. Otherwise copy from FileBackedMemRootDir.
+	// As a fallback, use QMP dump-guest-memory.
+	if q.config.MemoryPath != "" {
+		if err := copyFileLocal(q.config.MemoryPath, localMemory); err != nil {
+			return fmt.Errorf("checkpoint: copy memory from %s: %w", q.config.MemoryPath, err)
+		}
+	} else if q.config.FileBackedMemRootDir != "" {
+		memPath := filepath.Join(q.config.FileBackedMemRootDir, q.id, "memory")
+		if err := copyFileLocal(memPath, localMemory); err != nil {
+			return fmt.Errorf("checkpoint: copy file-backed memory: %w", err)
+		}
+	} else {
+		// Use QMP dump-guest-memory as fallback
+		protocol := fmt.Sprintf("file:%s", localMemory)
+		if err := q.qmpMonitorCh.qmp.ExecuteDumpGuestMemory(q.qmpMonitorCh.ctx, protocol, false, memoryDumpFormat); err != nil {
+			return fmt.Errorf("checkpoint: memory dump via QMP: %w", err)
+		}
+	}
+
+	// 6. Upload both artifacts to remote storage
+	stateURI := checkpointURI + "/state"
+	memoryURI := checkpointURI + "/memory"
+
+	if err := store.Upload(ctx, localDevicesState, stateURI); err != nil {
+		return fmt.Errorf("checkpoint: upload device state: %w", err)
+	}
+	if err := store.Upload(ctx, localMemory, memoryURI); err != nil {
+		return fmt.Errorf("checkpoint: upload memory: %w", err)
+	}
+
+	q.Logger().Info("checkpoint VM completed successfully")
+	return nil
+}
+
+// RestoreFromCheckpoint downloads a checkpoint from the given URI and configures
+// the hypervisor to boot from the saved template state. The caller should use
+// CreateVM + StartVM after calling this to boot the restored VM.
+func (q *qemu) RestoreFromCheckpoint(ctx context.Context, checkpointURI string) error {
+	span, _ := katatrace.Trace(ctx, q.Logger(), "RestoreFromCheckpoint", qemuTracingTags, map[string]string{"sandbox_id": q.id})
+	defer span.End()
+
+	q.Logger().WithField("checkpointURI", checkpointURI).Info("restore VM from checkpoint")
+
+	store, err := checkpoint.NewStorage(ctx, checkpointURI)
+	if err != nil {
+		return err
+	}
+
+	// Create a temporary directory for downloaded checkpoint artifacts
+	tmpDir, err := os.MkdirTemp("", "kata-restore-")
+	if err != nil {
+		return fmt.Errorf("restore: create tmpdir: %w", err)
+	}
+	// Note: tmpDir is NOT cleaned up here — the VM needs these files to boot.
+	// Cleanup happens when the VM is stopped.
+
+	localDevicesState := filepath.Join(tmpDir, "state")
+	localMemory := filepath.Join(tmpDir, "memory")
+
+	// Download checkpoint artifacts from remote storage
+	stateURI := checkpointURI + "/state"
+	memoryURI := checkpointURI + "/memory"
+
+	if err := store.Download(ctx, stateURI, localDevicesState); err != nil {
+		os.RemoveAll(tmpDir)
+		return fmt.Errorf("restore: download device state: %w", err)
+	}
+	if err := store.Download(ctx, memoryURI, localMemory); err != nil {
+		os.RemoveAll(tmpDir)
+		return fmt.Errorf("restore: download memory: %w", err)
+	}
+
+	// Configure hypervisor to boot from the downloaded template
+	q.config.BootToBeTemplate = false
+	q.config.BootFromTemplate = true
+	q.config.MemoryPath = localMemory
+	q.config.DevicesStatePath = localDevicesState
+
+	q.Logger().WithFields(logrus.Fields{
+		"memoryPath":       localMemory,
+		"devicesStatePath": localDevicesState,
+	}).Info("restore VM: config updated to boot from checkpoint")
+
+	return nil
+}
+
+// copyFileLocal copies a file from src to dst on the local filesystem.
+func copyFileLocal(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, in)
+	return err
 }
 
 func (q *qemu) Disconnect(ctx context.Context) {
