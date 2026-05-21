@@ -1,0 +1,60 @@
+# Build the forked containerd-shim-kata-v2 with checkpoint/restore support.
+# This image is used by a DaemonSet to overlay the shim binary on each node,
+# replacing the upstream version installed by the sandboxed-containers-operator.
+#
+# Build:
+#   podman build -f Dockerfile.shim -t kata-shim-checkpoint:latest .
+#
+# Or on-cluster via OpenShift BuildConfig (binary source upload).
+
+FROM registry.access.redhat.com/ubi9/go-toolset:1.22 AS builder
+
+USER root
+WORKDIR /build
+
+# Copy the runtime source (the go.mod is at src/runtime/)
+COPY src/runtime/ src/runtime/
+
+WORKDIR /build/src/runtime
+
+RUN go build -o /build/containerd-shim-kata-v2 \
+    ./cmd/containerd-shim-kata-v2
+
+# Minimal image to carry the binary — the DaemonSet copies it to the host.
+FROM registry.access.redhat.com/ubi9/ubi-micro:latest
+
+COPY --from=builder /build/containerd-shim-kata-v2 /opt/kata/bin/containerd-shim-kata-v2
+
+# install.sh copies the binary to the host path and restarts CRI-O.
+COPY <<'INSTALL' /opt/kata/bin/install.sh
+#!/bin/bash
+set -euo pipefail
+
+KATA_SHIM_SRC="/opt/kata/bin/containerd-shim-kata-v2"
+KATA_SHIM_DST="/opt/kata/bin/containerd-shim-kata-v2"
+HOST_PATH="/host${KATA_SHIM_DST}"
+
+echo "[kata-shim-overlay] Installing forked containerd-shim-kata-v2..."
+
+# Back up original if not already backed up
+if [ -f "${HOST_PATH}" ] && [ ! -f "${HOST_PATH}.upstream" ]; then
+    cp "${HOST_PATH}" "${HOST_PATH}.upstream"
+    echo "[kata-shim-overlay] Backed up upstream shim"
+fi
+
+# Copy our forked shim
+cp "${KATA_SHIM_SRC}" "${HOST_PATH}"
+chmod 755 "${HOST_PATH}"
+echo "[kata-shim-overlay] Installed forked shim at ${HOST_PATH}"
+
+# Signal CRI-O to pick up the new binary (it re-execs the shim on next container)
+echo "[kata-shim-overlay] Shim installed. New containers will use the forked runtime."
+
+# Keep running so the DaemonSet stays alive (and node stays labeled)
+echo "[kata-shim-overlay] Sleeping forever (shim overlay active)..."
+exec sleep infinity
+INSTALL
+
+RUN chmod +x /opt/kata/bin/install.sh
+
+ENTRYPOINT ["/opt/kata/bin/install.sh"]
